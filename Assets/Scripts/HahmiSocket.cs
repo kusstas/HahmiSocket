@@ -1,7 +1,7 @@
 ﻿using System;
+using System.Threading;
 using System.Collections.Generic;
 using UnityEngine;
-using UnityEngine.Events;
 
 using WebSocketSharp;
 
@@ -13,8 +13,6 @@ public class HahmiSocket : MonoBehaviour
     }
 
     private static Dictionary<string, HahmiSocket> sockets = new Dictionary<string, HahmiSocket>();
-
-    public string LastReceivedData { get; private set; }
 
     public bool IsConnected
     {
@@ -58,12 +56,26 @@ public class HahmiSocket : MonoBehaviour
 
     private WebSocket webSocket = null;
 
-    private volatile bool needTryingConnect = true;
+    private volatile bool needTryingConnect = false;
     private volatile bool isConnected = false;
+
+    private Mutex messageMutex = new Mutex();
+    private Queue<string> messages = new Queue<string>();
+
+    public void Connect()
+    {
+        TryConnect();
+    }
+
+    public void Close()
+    {
+        DisableTryingConnect();
+        webSocket.Close();
+    }
 
     public bool Send(string sendData)
     {
-        if (webSocket != null)
+        if (webSocket != null && IsConnected)
         {
             webSocket.Send(sendData);
             return true;
@@ -89,15 +101,12 @@ public class HahmiSocket : MonoBehaviour
         wsUri = string.Format(wsFormat, urlServer, portServer);
 
         CreateSocket();
-        TryConnect();
     }
 
     private void OnDestroy()
     {
-        if (webSocket != null)
-        {
-            webSocket.Close();
-        }
+        FixedUpdate();
+        Close();
         sockets.Remove(domainName);
     }
 
@@ -119,6 +128,20 @@ public class HahmiSocket : MonoBehaviour
         }
     }
 
+    private void FixedUpdate()
+    {
+        if (messages.Count > 0 && OnDataReceived != null)
+        {
+            messageMutex.WaitOne();
+            while (messages.Count > 0)
+            {
+                string data = messages.Dequeue();
+                OnDataReceived.Invoke(data);
+            }
+            messageMutex.ReleaseMutex();
+        }     
+    }
+
     private void CreateSocket()
     {
         Debug.Log(string.Format("Create a socket {0}...", domainName));
@@ -128,11 +151,12 @@ public class HahmiSocket : MonoBehaviour
         };
         webSocket.OnMessage += (sender, e) => {
             Debug.Log(string.Format("Received data on {0}: {1}", domainName, e.Data));
-            LastReceivedData = e.Data;
             if (OnDataReceived != null)
             {
-                OnDataReceived.Invoke(e.Data);
-            }
+                messageMutex.WaitOne();
+                messages.Enqueue(e.Data);
+                messageMutex.ReleaseMutex();
+            }        
         };
         webSocket.OnFailed += (sender, e) => {
             Debug.Log(string.Format("Failed on {0}: {1}", domainName, e));
