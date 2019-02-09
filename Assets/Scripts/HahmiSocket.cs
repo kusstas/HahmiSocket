@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Events;
 
@@ -6,6 +7,13 @@ using WebSocketSharp;
 
 public class HahmiSocket : MonoBehaviour
 {
+    public static HahmiSocket GetSocketByName(string name)
+    {
+        return sockets[name];
+    }
+
+    private static Dictionary<string, HahmiSocket> sockets = new Dictionary<string, HahmiSocket>();
+
     public string LastReceivedData { get; private set; }
 
     public bool IsConnected
@@ -34,13 +42,15 @@ public class HahmiSocket : MonoBehaviour
     }
 
     [SerializeField]
+    private string domainName = "HAHMI";
+
+    [SerializeField]
     private string urlServer = "localhost";
 
     [SerializeField]
     private int portServer = 4444;
 
-    [SerializeField]
-    public DataReceivedEvent OnDataReceived = new DataReceivedEvent();
+    public event DataReceivedEvent OnDataReceived;
 
     private const string wsFormat = "ws://{0}:{1}";
 
@@ -66,6 +76,16 @@ public class HahmiSocket : MonoBehaviour
     {
         DontDestroyOnLoad(gameObject);
 
+        if (domainName.IsNullOrEmpty())
+        {
+            throw new Exception("The socket domain name must be filled!");
+        }
+        if (sockets.ContainsKey(domainName))
+        {
+            throw new Exception(string.Format("The socket with domain name {0} exists yet!", domainName));
+        }
+        sockets.Add(domainName, this);
+
         wsUri = string.Format(wsFormat, urlServer, portServer);
 
         CreateSocket();
@@ -78,13 +98,14 @@ public class HahmiSocket : MonoBehaviour
         {
             webSocket.Close();
         }
+        sockets.Remove(domainName);
     }
 
     private void Update()
     {
         if (needTryingConnect && !IsConnected && webSocket != null)
         {
-            Debug.Log("Trying connect to HAHMI server...");
+            Debug.Log(string.Format("Trying connect to {0} ...", webSocket.Url));
             DisableTryingConnect();
             try
             {
@@ -100,13 +121,13 @@ public class HahmiSocket : MonoBehaviour
 
     private void CreateSocket()
     {
-        Debug.Log("Create socket...");
+        Debug.Log(string.Format("Create a socket {0}...", domainName));
         webSocket = new WebSocket(wsUri);
         webSocket.OnOpen += (sender, e) => {
             IsConnected = true;
         };
         webSocket.OnMessage += (sender, e) => {
-            Debug.Log("Received data: " + e.Data);
+            Debug.Log(string.Format("Received data on {0}: {1}", domainName, e.Data));
             LastReceivedData = e.Data;
             if (OnDataReceived != null)
             {
@@ -114,11 +135,11 @@ public class HahmiSocket : MonoBehaviour
             }
         };
         webSocket.OnFailed += (sender, e) => {
-            Debug.Log("Failed: " + e);
+            Debug.Log(string.Format("Failed on {0}: {1}", domainName, e));
             TryConnect();
         };
         webSocket.OnError += (sender, e) => {
-            Debug.LogError("Error: " + e.Message);
+            Debug.Log(string.Format("Error on {0}: {1}", domainName, e.Message));
             IsConnected = false;
             TryConnect();
         };
@@ -138,6 +159,5 @@ public class HahmiSocket : MonoBehaviour
         needTryingConnect = false;
     }
 
-    [Serializable]
-    public class DataReceivedEvent : UnityEvent<string> { }
+    public delegate void DataReceivedEvent(string message);
 }
