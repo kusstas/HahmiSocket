@@ -154,7 +154,7 @@ namespace WebSocketSharp
 
     static WebSocket ()
     {
-      _maxRetryCountForConnect = 10;
+      _maxRetryCountForConnect = 999999999;
       EmptyBytes = new byte[0];
       FragmentLength = 1016;
       RandomNumber = new RNGCryptoServiceProvider ();
@@ -793,6 +793,8 @@ namespace WebSocketSharp
     /// </summary>
     public event EventHandler<MessageEventArgs> OnMessage;
 
+    public event EventHandler<string> OnFailed;
+
     /// <summary>
     /// Occurs when the WebSocket connection has been established.
     /// </summary>
@@ -1244,16 +1246,6 @@ namespace WebSocketSharp
 
         if (_readyState == WebSocketState.Closing) {
           var msg = "The close process has set in.";
-          _logger.Error (msg);
-
-          msg = "An interruption has occurred while attempting to connect.";
-          error (msg, null);
-
-          return false;
-        }
-
-        if (_retryCountForConnect > _maxRetryCountForConnect) {
-          var msg = "An opportunity for reconnecting has been lost.";
           _logger.Error (msg);
 
           msg = "An interruption has occurred while attempting to connect.";
@@ -3289,8 +3281,18 @@ namespace WebSocketSharp
       Func<bool> connector = connect;
       connector.BeginInvoke (
         ar => {
-          if (connector.EndInvoke (ar))
-            open ();
+            if (connector.EndInvoke(ar))
+            {
+                open();
+            }
+            else
+            {
+                if (OnFailed != null)
+                {
+                    var msg = string.Format("Server \"{0}\" doesn't response", _uri);
+                    OnFailed(this, msg);
+                }
+            }
         },
         null
       );
